@@ -357,16 +357,14 @@ class HeatmapEngine:
             gps_por_placa, ref_lat, ref_lon, regras
         )
 
-        total_m = 0.0
-        coletado_m = 0.0
-        nao_coletado_m = 0.0
-        detalhes_inserir = []
+        # Passo 5.1: Pré-amostragem e primeira passagem de coleta direta por GPS
+        info_segmentos = []
+        seg_coletados_ids = set()
+        ponto_coletado_grid: Dict[Tuple[int, int], List[Tuple[float, float, str]]] = {}
         buffer_m = regras["buffer_m"]
 
         for seg in segmentos:
             ext = float(seg["extensao_m"] or 0.0)
-            total_m += ext
-
             try:
                 coords = json.loads(seg["geom_json"])
             except Exception:
@@ -374,19 +372,83 @@ class HeatmapEngine:
 
             amostras = self._amostrar_segmento_xy(coords, ref_lat, ref_lon, passo_m=10.0)
             n_amostras = len(amostras)
-
             matched_pass, placas_pass = self._consultar_grade(amostras, pass_grid, buffer_m)
             ratio = (matched_pass / n_amostras) if n_amostras > 0 else 0.0
 
             eh_via_manual = bool(seg["is_manual"]) or (str(seg["tipo"] or "").upper() == "MANUAL")
             coberta_por_passagem = (n_amostras <= 4 and matched_pass >= 1) or (ratio >= 0.30 and matched_pass >= 1)
 
+            if coberta_por_passagem and not eh_via_manual:
+                seg_coletados_ids.add(seg["id"])
+                # Indexa pontos de vias coletadas para avaliar adjacência/conexão topológica com vias manuais
+                for x, y in amostras:
+                    cx = int(math.floor(x / 50.0))
+                    cy = int(math.floor(y / 50.0))
+                    ponto_coletado_grid.setdefault((cx, cy), []).append((x, y, list(placas_pass)[0] if placas_pass else ""))
+
+            info_segmentos.append({
+                "seg": seg,
+                "ext": ext,
+                "coords": coords,
+                "amostras": amostras,
+                "n_amostras": n_amostras,
+                "matched_pass": matched_pass,
+                "placas_pass": placas_pass,
+                "ratio": ratio,
+                "eh_via_manual": eh_via_manual,
+                "coberta_por_passagem": coberta_por_passagem,
+            })
+
+        total_m = 0.0
+        coletado_m = 0.0
+        nao_coletado_m = 0.0
+        detalhes_inserir = []
+
+        for item in info_segmentos:
+            seg = item["seg"]
+            ext = item["ext"]
+            amostras = item["amostras"]
+            n_amostras = item["n_amostras"]
+            matched_pass = item["matched_pass"]
+            placas_pass = item["placas_pass"]
+            ratio = item["ratio"]
+            eh_via_manual = item["eh_via_manual"]
+            coberta_por_passagem = item["coberta_por_passagem"]
+
+            total_m += ext
+
             if eh_via_manual:
+                # Regra Inlog / Locar de Coleta Manual:
+                # 1. Veículo passou ou parou dentro de raio de esquina/proximidade (50m)
+                # 2. OU via conectada/adjacente foi coletada (caminhão recolheu a pé a partir da esquina conectada)
                 matched_man_pass, placas_man_pass = self._consultar_grade(amostras, pass_grid, 50.0)
                 matched_man_dwell, placas_man_dwell = self._consultar_grade(amostras, dwell_grid, 50.0)
-                if matched_man_pass >= 1 or matched_man_dwell >= 1:
+
+                conectada_a_via_coletada = False
+                placas_adj: Set[str] = set()
+                if not (matched_man_pass >= 1 or matched_man_dwell >= 1):
+                    # Checa proximidade direta das pontas/amostras com vias conectadas já coletadas (até 35m)
+                    for x, y in amostras:
+                        cx0 = int(math.floor(x / 50.0))
+                        cy0 = int(math.floor(y / 50.0))
+                        for dx in (-1, 0, 1):
+                            for dy in (-1, 0, 1):
+                                for px, py, p_placa in ponto_coletado_grid.get((cx0 + dx, cy0 + dy), []):
+                                    if math.hypot(x - px, y - py) <= 35.0:
+                                        conectada_a_via_coletada = True
+                                        if p_placa:
+                                            placas_adj.add(p_placa)
+                                        break
+                                if conectada_a_via_coletada:
+                                    break
+                            if conectada_a_via_coletada:
+                                break
+                        if conectada_a_via_coletada:
+                            break
+
+                if matched_man_pass >= 1 or matched_man_dwell >= 1 or conectada_a_via_coletada:
                     st = "possible_manual"
-                    p_resp = sorted(placas_man_pass | placas_man_dwell)
+                    p_resp = sorted(placas_man_pass | placas_man_dwell | placas_adj)
                     coletado_m += ext
                 else:
                     matched_gap, placas_gap = self._consultar_grade(amostras, gap_grid, 35.0)

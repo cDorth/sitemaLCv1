@@ -189,6 +189,14 @@ class TestIntegracaoInlog(unittest.TestCase):
         self.assertTrue(removido)
 
     def test_06_rotas_http_app_py(self):
+        session = requests.Session()
+        login_resp = session.post(
+            f"{self.local_url}/api/auth/login",
+            json={"password": "filialsaopaulo01"},
+            timeout=10,
+        )
+        self.assertEqual(login_resp.status_code, 200, "Falha ao autenticar no painel central")
+
         rotas_get = [
             ("/", "text/html"),
             ("/api/status", "application/json"),
@@ -209,7 +217,7 @@ class TestIntegracaoInlog(unittest.TestCase):
 
         audit_id = None
         for path, expected_ct in rotas_get:
-            resp = requests.get(f"{self.local_url}{path}", timeout=65)
+            resp = session.get(f"{self.local_url}{path}", timeout=65)
             self.assertEqual(resp.status_code, 200, f"Falha na rota {path}: HTTP {resp.status_code}")
             self.assertIn(expected_ct, resp.headers.get("Content-Type", ""))
 
@@ -236,7 +244,7 @@ class TestIntegracaoInlog(unittest.TestCase):
                     self.assertGreater(len(js["logs"]), 0)
 
         self.assertIsNotNone(audit_id)
-        csv_resp = requests.get(f"{self.local_url}/api/exportar-csv?id={audit_id}", timeout=15)
+        csv_resp = session.get(f"{self.local_url}/api/exportar-csv?id={audit_id}", timeout=15)
         self.assertEqual(csv_resp.status_code, 200)
         self.assertIn("text/csv", csv_resp.headers.get("Content-Type", ""))
         self.assertIn("Logradouro / Rua", csv_resp.text)
@@ -248,8 +256,14 @@ class TestIntegracaoInlog(unittest.TestCase):
         self.assertEqual(malha_rotas.classificar_setor_sigla("SCPD 10")["turno"], "DIURNO")
         self.assertEqual(malha_rotas.classificar_setor_sigla("SCPN 02")["turno"], "NOTURNO")
 
-        # 2. Presença dos novos componentes e métricas na interface HTML
-        html_resp = requests.get(f"{self.local_url}/", timeout=15)
+        # 2. Presença dos novos componentes e métricas na interface HTML autenticada
+        session = requests.Session()
+        session.post(
+            f"{self.local_url}/api/auth/login",
+            json={"password": "filialsaopaulo01"},
+            timeout=10,
+        )
+        html_resp = session.get(f"{self.local_url}/", timeout=15)
         self.assertEqual(html_resp.status_code, 200)
         for elemento in (
             "filterTurno",
@@ -261,15 +275,18 @@ class TestIntegracaoInlog(unittest.TestCase):
         ):
             self.assertIn(elemento, html_resp.text)
 
-        # 3. Campos de coleta manual no resumo da auditoria
-        aud = requests.get(f"{self.local_url}/api/auditoria?cidade=cabo&data={self.hoje}", timeout=30).json()
+        # 3. Sem autenticação /api/auditoria bloqueia (401); com sessão autenticada funciona
+        unauth_aud = requests.get(f"{self.local_url}/api/auditoria?cidade=cabo&data={self.hoje}", timeout=15)
+        self.assertEqual(unauth_aud.status_code, 401)
+
+        aud = session.get(f"{self.local_url}/api/auditoria?cidade=cabo&data={self.hoje}", timeout=30).json()
         self.assertIn("km_manual", aud["resumo"])
         self.assertIn("vias_manual", aud["resumo"])
         self.assertIn("pct_manual", aud["resumo"])
         audit_id = aud["resumo"]["id"]
 
         # 4. Link Assinado Exclusivo (/v/<token>) e Bloqueio do Painel Central
-        gen = requests.post(
+        gen = session.post(
             f"{self.local_url}/api/compartilhar/gerar",
             json={"cidade": "cabo", "data": self.hoje, "turno": "DIURNO", "coleta": "all", "setores": []},
             timeout=10,

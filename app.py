@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
 import threading
 import time
 import urllib.parse
@@ -31,8 +32,13 @@ inlog = InlogService()
 engine = HeatmapEngine(inlog_service=inlog)
 
 SECRET_KEY = os.getenv("SECRET_KEY", "locar-saneamento-inlog-secret-key-2026").encode("utf-8")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "locar2026")
-REQUIRE_ADMIN_LOGIN = os.getenv("REQUIRE_ADMIN_LOGIN", "false").lower() in ("1", "true", "sim", "yes")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "filialsaopaulo01")
+REQUIRE_ADMIN_LOGIN = os.getenv("REQUIRE_ADMIN_LOGIN", "true").lower() in ("1", "true", "sim", "yes")
+SERVER_BOOT_ID = secrets.token_hex(6)
+
+
+def _admin_pwd_tag() -> str:
+    return hashlib.sha256(ADMIN_PASSWORD.encode("utf-8")).hexdigest()[:8]
 
 
 def _b64u_encode(raw: bytes) -> str:
@@ -79,18 +85,23 @@ def validar_token_compartilhamento(token: Optional[str]) -> Optional[Dict[str, A
 
 def gerar_cookie_admin() -> str:
     ts = str(int(time.time()))
-    sig = _b64u_encode(hmac.new(SECRET_KEY, f"admin:{ts}".encode("utf-8"), hashlib.sha256).digest())
-    return f"admin.{ts}.{sig}"
+    tag = _admin_pwd_tag()
+    payload = f"admin:{SERVER_BOOT_ID}:{tag}:{ts}"
+    sig = _b64u_encode(hmac.new(SECRET_KEY, payload.encode("utf-8"), hashlib.sha256).digest())
+    return f"admin.{SERVER_BOOT_ID}.{tag}.{ts}.{sig}"
 
 
 def validar_cookie_admin(val: Optional[str]) -> bool:
-    if not val or val.count(".") != 2:
+    if not val or val.count(".") != 4:
         return False
     try:
-        prefix, ts, sig = val.strip().split(".", 2)
-        if prefix != "admin":
+        prefix, boot_id, tag, ts, sig = val.strip().split(".", 4)
+        if prefix != "admin" or boot_id != SERVER_BOOT_ID or tag != _admin_pwd_tag():
             return False
-        expected = _b64u_encode(hmac.new(SECRET_KEY, f"admin:{ts}".encode("utf-8"), hashlib.sha256).digest())
+        if (time.time() - int(ts)) > 43200:
+            return False
+        payload = f"admin:{boot_id}:{tag}:{ts}"
+        expected = _b64u_encode(hmac.new(SECRET_KEY, payload.encode("utf-8"), hashlib.sha256).digest())
         return hmac.compare_digest(sig, expected)
     except Exception:
         return False
@@ -298,8 +309,10 @@ HTML_PAGE = r"""<!DOCTYPE html>
             background-color: #FFFFFF;
             outline: none;
             height: 27px;
-            max-width: 175px;
             transition: border-color 0.15s;
+        }
+        .toolbar select, .toolbar input[type="date"], .toolbar input[type="text"] {
+            max-width: 175px;
         }
         select:focus, input:focus { border-color: var(--locar-green); }
 
@@ -431,11 +444,31 @@ HTML_PAGE = r"""<!DOCTYPE html>
         body.modo-link-compartilhado #inlogStatusBadge { display: none !important; }
         body.modo-link-compartilhado #btnPlanejadoVsExec,
         body.modo-link-compartilhado #btnVisaoGeral,
-        body.modo-link-compartilhado #btnCentralInlog { display: none !important; }
+        body.modo-link-compartilhado #btnCentralInlog,
+        body.modo-link-compartilhado #btnSairAdmin { display: none !important; }
         body.modo-link-compartilhado #btnBaixarCsvLink { display: inline-flex !important; }
         body.modo-link-compartilhado #secCamadasInlog { display: none !important; }
         body.modo-link-compartilhado #gisToolbar,
         body.modo-link-compartilhado #panelEdicaoGIS { display: none !important; }
+
+        /* BOTÃO E CABEÇALHO MOBILE (OCULTOS NO DESKTOP) */
+        .mobile-panel-toggle {
+            display: none;
+            background: #008844;
+            color: #FFFFFF;
+            border: none;
+            border-radius: 5px;
+            padding: 4px 8px;
+            font-size: 0.74rem;
+            font-weight: 700;
+            cursor: pointer;
+            align-items: center;
+            gap: 4px;
+            height: 28px;
+        }
+        .sidebar-mobile-header {
+            display: none;
+        }
         .stat-title {
             font-size: 0.63rem;
             font-weight: 700;
@@ -841,6 +874,134 @@ HTML_PAGE = r"""<!DOCTYPE html>
         .macros-drawer {
             margin-top: 12px; padding: 12px; background: #F8FAFC; border: 1px solid var(--gray-border); border-radius: 8px;
         }
+
+        /* RESPONSIVIDADE MOBILE E TABLET (SEMPRE NO FINAL PARA SOBRESCREVER DESKTOP) */
+        @media (max-width: 768px) {
+            body {
+                height: 100dvh;
+            }
+            header {
+                height: auto;
+                min-height: 40px;
+                padding: 5px 10px;
+                flex-wrap: wrap;
+                gap: 5px;
+            }
+            .header-brand {
+                flex: 1 1 auto;
+                min-width: 0;
+                gap: 6px;
+            }
+            .header-title h1 {
+                font-size: 0.82rem;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .header-title .tagline {
+                display: inline;
+                font-size: 0.68rem;
+            }
+            body:not(.modo-link-compartilhado) .header-title .tagline {
+                display: none;
+            }
+            .header-actions {
+                gap: 4px;
+                flex-wrap: wrap;
+            }
+            .mobile-panel-toggle {
+                display: inline-flex !important;
+            }
+
+            .stats-bar {
+                grid-template-columns: repeat(2, 1fr) !important;
+                gap: 5px;
+                padding: 5px 8px;
+            }
+            .stat-card {
+                padding: 4px 7px;
+                min-width: 0;
+            }
+            .stat-title {
+                font-size: 0.57rem;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .stat-value {
+                font-size: 0.86rem;
+                margin-top: 0;
+            }
+            .stat-sub {
+                font-size: 0.59rem;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .main-container {
+                flex-direction: column;
+                position: relative;
+                flex: 1 1 auto;
+                min-height: 220px;
+            }
+            #map {
+                width: 100% !important;
+                height: 100% !important;
+                flex: 1;
+            }
+            .leaflet-control-attribution {
+                margin-bottom: 42px !important;
+                font-size: 9px !important;
+            }
+
+            .sidebar {
+                position: absolute !important;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                width: 100% !important;
+                max-height: 62vh;
+                background: #FFFFFF;
+                border-left: none;
+                border-top: 2px solid var(--locar-green);
+                box-shadow: 0 -6px 20px rgba(15, 23, 42, 0.22);
+                transition: transform 0.25s ease-in-out;
+                z-index: 1500 !important;
+                overflow-y: auto;
+                border-radius: 12px 12px 0 0;
+            }
+            .sidebar.mobile-collapsed {
+                transform: translateY(calc(100% - 38px));
+                overflow: hidden;
+            }
+            .sidebar-mobile-header {
+                display: flex !important;
+                align-items: center;
+                justify-content: space-between;
+                padding: 9px 14px;
+                height: 38px;
+                background: #F8FAFC;
+                border-bottom: 1px solid var(--gray-border);
+                cursor: pointer;
+                position: sticky;
+                top: 0;
+                z-index: 10;
+            }
+            .sidebar-mobile-header span {
+                font-size: 0.76rem;
+                font-weight: 700;
+                color: var(--text-dark);
+            }
+            .sidebar-field select, .sidebar-field input[type="text"], .sidebar-field input[type="date"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                height: 34px;
+                font-size: 0.82rem;
+            }
+            .modal-form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -858,6 +1019,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
             </div>
         </div>
         <div class="header-actions">
+            <button class="mobile-panel-toggle" id="btnToggleSidebarMobile" title="Abrir painel de filtros">
+                ☰ Filtros
+            </button>
             <button class="btn-outline" id="btnPlanejadoVsExec" title="Comparar Rota Planejada (Inlog) x Rota Executada por cada veículo">
                 🧭 Planejado x Real
             </button>
@@ -870,6 +1034,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
             <button class="btn-locar" id="btnBaixarCsvLink" style="display:none;" title="Exportar relatório de ruas omitidas em CSV">
                 ⬇ Baixar CSV
             </button>
+            <a class="btn-outline" id="btnSairAdmin" href="/logout" style="text-decoration:none;" title="Encerrar sessão administrativa">
+                🔒 Sair
+            </a>
         </div>
     </header>
 
@@ -1002,7 +1169,11 @@ HTML_PAGE = r"""<!DOCTYPE html>
         </div>
 
         <!-- SIDEBAR DIREITA -->
-        <div class="sidebar">
+        <div class="sidebar" id="sidebarRight">
+            <div class="sidebar-mobile-header" id="sidebarMobileHeader">
+                <span>📊 Painel de Filtros e Legenda</span>
+                <span id="sidebarMobileIcon">▼</span>
+            </div>
             <div id="panelAuditoria">
                 <div class="sidebar-section">
                     <h4>Filtros de Coleta</h4>
@@ -3196,9 +3367,34 @@ HTML_PAGE = r"""<!DOCTYPE html>
             if (url) window.open(url, '_blank');
         });
 
+        // Mobile Sidebar Drawer Toggle
+        const btnToggleSidebarMobile = document.getElementById('btnToggleSidebarMobile');
+        const sidebarRight = document.getElementById('sidebarRight');
+        const sidebarMobileHeader = document.getElementById('sidebarMobileHeader');
+        const sidebarMobileIcon = document.getElementById('sidebarMobileIcon');
+
+        function alternarPainelMobile() {
+            if (!sidebarRight) return;
+            const recolhido = sidebarRight.classList.toggle('mobile-collapsed');
+            if (sidebarMobileIcon) sidebarMobileIcon.innerText = recolhido ? '▲' : '▼';
+            if (map) setTimeout(() => map.invalidateSize(), 260);
+        }
+
+        if (btnToggleSidebarMobile) {
+            btnToggleSidebarMobile.addEventListener('click', alternarPainelMobile);
+        }
+        if (sidebarMobileHeader) {
+            sidebarMobileHeader.addEventListener('click', alternarPainelMobile);
+        }
+
         window.onload = () => {
             checkUrlParams();
             initMap();
+            if (window.innerWidth <= 768 && sidebarRight) {
+                sidebarRight.classList.add('mobile-collapsed');
+                if (sidebarMobileIcon) sidebarMobileIcon.innerText = '▲';
+            }
+            if (map) setTimeout(() => map.invalidateSize(), 250);
             carregarAuditoria(false);
         };
     </script>
@@ -3342,6 +3538,9 @@ class LocarRequestHandler(BaseHTTPRequestHandler):
                     return
             elif (not is_admin) and viewer_lock is not None:
                 tok_payload = viewer_lock
+            elif (not is_admin) and REQUIRE_ADMIN_LOGIN:
+                self._send_json({"erro": "Autenticação administrativa necessária."}, status=401)
+                return
 
             cidade = tok_payload["cidade"] if tok_payload else query.get("cidade", ["cabo"])[0]
             data_iso = query.get("data", [datetime.now().strftime("%Y-%m-%d")])[0]
@@ -3365,6 +3564,9 @@ class LocarRequestHandler(BaseHTTPRequestHandler):
                     return
             elif (not is_admin) and viewer_lock is not None:
                 tok_payload = viewer_lock
+            elif (not is_admin) and REQUIRE_ADMIN_LOGIN:
+                self._send_json({"erro": "Autenticação administrativa necessária."}, status=401)
+                return
 
             if tok_payload and audit_id > 0:
                 conn = db.get_connection()
@@ -3383,6 +3585,11 @@ class LocarRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
             self.wfile.write(csv_str.encode("utf-8-sig"))
+            return
+
+        # Demais APIs internas e Inlog: exigem sessão administrativa autenticada
+        if path.startswith("/api/") and (not is_admin) and (viewer_lock is not None or REQUIRE_ADMIN_LOGIN):
+            self._send_json({"sucesso": False, "erro": "Acesso restrito ao Painel Central autenticado."}, status=403)
             return
 
         # 4. Exportação GeoJSON da Malha Viária Local
