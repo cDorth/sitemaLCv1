@@ -52,13 +52,17 @@ def _b64u_decode(txt: str) -> bytes:
 
 def gerar_token_compartilhamento(payload: Dict[str, Any]) -> str:
     """Assina criptograficamente um link exclusivo de visualização (HMAC-SHA256)."""
+    periodo = str(payload.get("periodo") or "diario").lower().strip()
+    if periodo not in ("diario", "quinzena1", "quinzena2", "mensal"):
+        periodo = "diario"
     dados = {
         "cidade": str(payload.get("cidade") or "cabo").lower().strip(),
         "data": str(payload.get("data") or "").strip(),
+        "periodo": periodo,
         "turno": str(payload.get("turno") or "all").strip(),
         "coleta": str(payload.get("coleta") or "all").strip(),
         "setores": [str(s).strip() for s in (payload.get("setores") or []) if str(s).strip()],
-        "v": 2,
+        "v": 3,
     }
     raw = json.dumps(dados, separators=(",", ":"), sort_keys=True).encode("utf-8")
     b64_p = _b64u_encode(raw)
@@ -191,7 +195,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
             --text-muted: #64748B;
             --danger-red: #E53935;
             --warning-amber: #FBC02D;
-            --manual-orange: #FB8C00;
+            --manual-orange: #0284C7;
             --collected-green: #00A859;
             --card-shadow: 0 2px 4px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03);
         }
@@ -1046,8 +1050,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
             <div class="filter-group">
                 <label for="selectCidade" title="Cidade / Projeto">Cidade:</label>
                 <select id="selectCidade">
+                    <option value="all">Todas as Cidades (Visão Geral)</option>
+                    <option value="cabo" selected>Cabo de Santo Agostinho</option>
                     <option value="jaboatao">Jaboatão dos Guararapes</option>
-                    <option value="cabo">Cabo de Santo Agostinho</option>
                     <option value="olinda">Olinda</option>
                     <option value="paulista">Paulista</option>
                     <option value="caruaru">Caruaru</option>
@@ -1085,9 +1090,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 <input type="date" id="inputData" />
             </div>
 
-            <div class="frequencia-pill-box" id="pillFrequenciaBox" title="Regra Padrão: Seg/Qua/Sex = PAR (SCPD/SCPN) · Ter/Qui/Sáb = ÍMPAR (SCID/SCIN)">
+            <div class="frequencia-pill-box" id="pillFrequenciaBox" title="Agenda oficial por sufixo (SEG..DOM, A, E, 1..4/L, QZ) e prefixo (SCD*=Diário, SCP*=Par, SCI*=Ímpar, SCDOM*=Dom)">
                 <span id="frequenciaIcon">📅</span>
-                <span id="lblFrequenciaRegra">Frequência PAR</span>
+                <span id="lblFrequenciaRegra">Agenda Oficial</span>
             </div>
 
             <button class="btn-locar" id="btnConsultar" title="Sincronizar dados com a Inlog e executar auditoria espacial">
@@ -1202,7 +1207,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                             <span class="sector-count-pill" id="sectorSelectedCount">Todos</span>
                         </div>
                         <div style="font-size:0.70rem; color:#475569; margin-bottom:5px; font-weight:500;" id="lblSubFrequenciaSetores">
-                            Regra Par/Ímpar: Seg, Qua, Sex (PAR) · Ter, Qui, Sáb (ÍMPAR)
+                            Agenda por sufixo (SEG..DOM, A, E, 1..4/L, QZ) e prefixo (SCD*/SCP*/SCI*/SCDOM*)
                         </div>
                         <div class="multi-select-container" id="multiSetorContainer">
                             <button type="button" class="multi-select-trigger" id="btnMultiSetorTrigger">
@@ -1301,8 +1306,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 </div>
 
                 <div class="sidebar-section">
-                    <h4>Legenda do Mapa de Calor</h4>
-                    <div class="legend-compact">
+                    <h4 id="legendTitle">Legenda do Mapa de Calor</h4>
+                    <div id="legendDiario" class="legend-compact">
                         <div class="legend-row">
                             <span><span class="legend-color-dot" style="background:#00A859;"></span> Coletada</span>
                             <strong id="legColetada">--</strong>
@@ -1312,8 +1317,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
                             <strong id="legNaoColetada" style="color:var(--danger-red);">--</strong>
                         </div>
                         <div class="legend-row">
-                            <span><span class="legend-color-dot" style="background:#FB8C00;"></span> Coleta Manual</span>
-                            <strong id="legManual">--</strong>
+                            <span><span class="legend-color-dot" style="background:#0284C7;"></span> Coleta Manual</span>
+                            <strong id="legManual" style="color:#0284C7;">--</strong>
                         </div>
                         <div class="legend-row">
                             <span><span class="legend-color-dot" style="background:#FBC02D;"></span> Falha de GPS</span>
@@ -1323,6 +1328,19 @@ HTML_PAGE = r"""<!DOCTYPE html>
                             <span><span class="legend-color-dot" style="background:#1D4ED8;"></span> Rua Prioritária</span>
                             <strong id="legPrioritaria" style="color:#1D4ED8;">--</strong>
                         </div>
+                    </div>
+                    <div id="legendPeriodo" class="legend-compact" style="display:none;">
+                        <div class="legend-row"><span><span class="legend-color-dot" style="background:#00E600;"></span> 80-100%</span><strong id="legP80">--</strong></div>
+                        <div class="legend-row"><span><span class="legend-color-dot" style="background:#FFFF00;border:1px solid #cbd5e1;"></span> 60-80%</span><strong id="legP60">--</strong></div>
+                        <div class="legend-row"><span><span class="legend-color-dot" style="background:#FF9900;"></span> 40-60%</span><strong id="legP40">--</strong></div>
+                        <div class="legend-row"><span><span class="legend-color-dot" style="background:#FF0000;"></span> 20-40%</span><strong id="legP20">--</strong></div>
+                        <div class="legend-row"><span><span class="legend-color-dot" style="background:#660000;"></span> 0-20%</span><strong id="legP0">--</strong></div>
+                        <div style="border-top:1px dashed var(--gray-border); margin:4px 0; padding-top:4px; font-size:0.7rem; font-weight:700; color:#0284C7;">Coleta Manual (Azul por %)</div>
+                        <div class="legend-row"><span><span class="legend-color-dot" style="background:#00FFFF;border:1px solid #94a3b8;"></span> Manual: 80-100%</span><strong id="legM80">--</strong></div>
+                        <div class="legend-row"><span><span class="legend-color-dot" style="background:#00BFFF;"></span> Manual: 60-80%</span><strong id="legM60">--</strong></div>
+                        <div class="legend-row"><span><span class="legend-color-dot" style="background:#0080FF;"></span> Manual: 40-60%</span><strong id="legM40">--</strong></div>
+                        <div class="legend-row"><span><span class="legend-color-dot" style="background:#0040FF;"></span> Manual: 20-40%</span><strong id="legM20">--</strong></div>
+                        <div class="legend-row"><span><span class="legend-color-dot" style="background:#001F66;"></span> Manual: 0-20%</span><strong id="legM0">--</strong></div>
                     </div>
                 </div>
             </div>
@@ -1462,7 +1480,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 <div class="security-callout">
                     <div style="font-weight:700; color:#1D4ED8;">🔒 Link Exclusivo Assinado (Cidade Única)</div>
                     <p style="margin:4px 0 0 0; font-size:0.74rem; color:#1E293B;">
-                        Link criptografado restrito apenas à cidade selecionada. Barra superior, camadas Inlog e painel central ficam ocultos e bloqueados (mesmo alterando a URL), restando apenas visualização com filtro Diurno/Noturno e download CSV.
+                        Link criptografado restrito apenas à cidade e ao período selecionados. Quem acessa o link não pode alterar a exibição, período ou filtros, restando apenas visualização e download CSV.
                     </p>
                 </div>
                 <div class="modal-form-grid">
@@ -1471,9 +1489,19 @@ HTML_PAGE = r"""<!DOCTYPE html>
                         <select id="modalShareCidade"></select>
                     </div>
                     <div class="sidebar-field">
-                        <label>Data da Operação:</label>
+                        <label id="lblModalShareData">Data da Operação:</label>
                         <input type="date" id="modalShareData" />
+                        <input type="month" id="modalShareMes" style="display:none;" />
                     </div>
+                </div>
+                <div class="sidebar-field" style="margin-top:10px;">
+                    <label>Período de Exibição / Cálculo (% por Rua e Setor):</label>
+                    <select id="modalSharePeriodo">
+                        <option value="diario">📅 Diário (Dia Único)</option>
+                        <option value="quinzena1">📆 1ª Quinzena (Dias 01 a 15)</option>
+                        <option value="quinzena2">📆 2ª Quinzena (Dias 16 ao fim do mês)</option>
+                        <option value="mensal">🗓️ Mensal (Mês Completo)</option>
+                    </select>
                 </div>
                 <div class="modal-form-grid" style="margin-top:10px;">
                     <div class="sidebar-field">
@@ -1540,11 +1568,13 @@ HTML_PAGE = r"""<!DOCTYPE html>
         let currentAudit = null;
         let currentFeatures = [];
         let setoresList = [];
+        let setorTurnoMap = {};
         let selectedSectors = new Set();
         let lastCenteredCity = null;
         let isReadOnlyMode = false;
         let isSharedLinkMode = false;
         let sharedToken = null;
+        let sharedPeriodo = 'diario';
         let showSectorLabels = true;
         let showPriorityHighlight = true;
         let isEditMode = false;
@@ -1554,6 +1584,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
         let activeCentralTab = 'frota';
 
         const CIDADES_MAPA = {
+            'all': 'Todas as Cidades (Visão Geral)',
             'jaboatao': 'Jaboatão dos Guararapes',
             'cabo': 'Cabo de Santo Agostinho',
             'olinda': 'Olinda',
@@ -1569,18 +1600,41 @@ HTML_PAGE = r"""<!DOCTYPE html>
             'varzea': 'Várzea Grande'
         };
 
+        const CIDADES_COORDENADAS = {
+            'all': { centro: [-14.2350, -51.9253], zoom: 4 },
+            'cabo': { centro: [-8.2833, -35.0333], zoom: 12 },
+            'jaboatao': { centro: [-8.1930, -34.9364], zoom: 12 },
+            'olinda': { centro: [-7.9986, -34.8459], zoom: 13 },
+            'paulista': { centro: [-7.9408, -34.8728], zoom: 12.5 },
+            'caruaru': { centro: [-8.2838, -35.9761], zoom: 12 },
+            'cuiaba': { centro: [-15.6014, -56.0979], zoom: 12 },
+            'garanhuns': { centro: [-8.8907, -36.4966], zoom: 13 },
+            'pesqueira': { centro: [-8.3586, -36.6961], zoom: 13 },
+            'vitoria': { centro: [-8.1189, -35.2928], zoom: 13 },
+            'canela': { centro: [-29.3644, -50.8119], zoom: 13 },
+            'jequie': { centro: [-13.8575, -40.0839], zoom: 13 },
+            'novo hamburgo': { centro: [-29.6789, -51.1306], zoom: 12.5 },
+            'varzea': { centro: [-15.6467, -56.1325], zoom: 12 }
+        };
+
         function obterTurnoSetor(codigoSetor) {
-            const s = String(codigoSetor || '').toUpperCase().trim();
-            if (!s) return 'OUTRO';
-            const m = s.match(/\bSC[A-Z]([A-Z])(?:\b|\s|\d)/);
-            if (m) {
-                const l4 = m[1];
-                if (l4 === 'D' || l4 === 'M') return 'DIURNO';
-                if (l4 === 'N' || l4 === 'V') return 'NOTURNO';
+            if (codigoSetor && setorTurnoMap[codigoSetor]) {
+                return setorTurnoMap[codigoSetor];
             }
+            const s = String(codigoSetor || '').toUpperCase().trim();
+            if (!s) return 'DIURNO';
+            if (/\b(SCDOMN|SCDN|SCPN|SCIN|SCDM|SCPM|SCIM)\b/.test(s)) return 'NOTURNO';
+            if (/\b(SCDOMD|SCDD|SCPD|SCID|SCAD|SCSBD|SCSCD|SCPV|SCIV|SCDV)\b/.test(s)) return 'DIURNO';
+            const mDom = s.match(/\bSCDOM\s*0*(\d+)\b/);
+            if (mDom && (mDom[1] === '28' || mDom[1] === '29' || mDom[1] === '38')) return 'NOTURNO';
             if (s.includes('NOTURNO') || s.includes('NOITE')) return 'NOTURNO';
-            if (s.includes('DIURNO') || s.includes('DOM') || s.includes('FEIRA')) return 'DIURNO';
-            return 'OUTRO';
+            const m = s.match(/\bSC[A-Z]([A-Z])(?:\b|\s|\d)/);
+            if (m && s.indexOf('SCDOM') === -1) {
+                const l4 = m[1];
+                if (l4 === 'N' || l4 === 'M') return 'NOTURNO';
+                if (l4 === 'D' || l4 === 'V') return 'DIURNO';
+            }
+            return 'DIURNO';
         }
 
         function escapeHtml(str) {
@@ -1614,6 +1668,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
             isReadOnlyMode = true;
             isSharedLinkMode = true;
             sharedToken = (lockCfg && lockCfg.token) ? lockCfg.token : null;
+            sharedPeriodo = (lockCfg && lockCfg.periodo) ? String(lockCfg.periodo).toLowerCase() : 'diario';
             document.body.classList.add('modo-link-compartilhado');
 
             const btnEdit = document.getElementById('btnToggleEditMode');
@@ -1655,6 +1710,17 @@ HTML_PAGE = r"""<!DOCTYPE html>
             }
             if (lockCfg && Array.isArray(lockCfg.setores) && lockCfg.setores.length > 0) {
                 selectedSectors = new Set(lockCfg.setores);
+            }
+
+            // Bloqueia controles de alteração de exibição para quem acessa o link
+            ['selectCidade', 'inputData', 'selectTurno', 'selectOperacao', 'filterTurno', 'filterColeta', 'filterVeiculo'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = true;
+            });
+            const msList = document.getElementById('multiSetorList');
+            if (msList) {
+                msList.style.pointerEvents = 'none';
+                msList.style.opacity = '0.7';
             }
         }
 
@@ -1756,6 +1822,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
             try {
                 let url = `/api/auditoria?cidade=${encodeURIComponent(cidade)}&data=${encodeURIComponent(data)}&operacao=${encodeURIComponent(operacaoApi)}&force=${forcar}&_t=${Date.now()}`;
+                if (sharedPeriodo && sharedPeriodo !== 'diario') url += `&periodo=${encodeURIComponent(sharedPeriodo)}`;
                 if (sharedToken) url += `&token=${encodeURIComponent(sharedToken)}`;
                 const resp = await fetch(url);
                 const dataRes = await resp.json();
@@ -1768,12 +1835,17 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 currentAudit = dataRes;
                 currentFeatures = dataRes.geojson.features || [];
                 setoresList = dataRes.setores || [];
+                setorTurnoMap = {};
+                setoresList.forEach(s => {
+                    if (s && s.codigo && s.turno) setorTurnoMap[s.codigo] = s.turno;
+                });
 
                 if (isSharedLinkMode) {
                     const tagEl = document.getElementById('headerTagline');
                     if (tagEl) {
                         const dtFmt = dataRes.resumo?.data_formatada || data;
-                        tagEl.innerText = `· ${CIDADES_MAPA[cidade] || cidade} (${dtFmt})`;
+                        const perRot = dataRes.resumo?.periodo_rotulo ? `${dataRes.resumo.periodo_rotulo} · ` : '';
+                        tagEl.innerText = `· ${CIDADES_MAPA[cidade] || cidade} (${perRot}${dtFmt})`;
                     }
                 }
 
@@ -2154,7 +2226,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                     <input type="checkbox" value="${escapeHtml(s.codigo)}" ${isChecked ? 'checked' : ''} />
                     <div class="sector-item-info">
                         <span class="sector-code">${escapeHtml(s.codigo)}</span>
-                        <span class="sector-meta">${s.total_vias || 0} vias · ${s.extensao_km || 0} km</span>
+                        <span class="sector-meta">${s.agenda_rotulo ? escapeHtml(s.agenda_rotulo) + ' · ' : ''}${s.total_vias || 0} vias · ${s.extensao_km || 0} km</span>
                     </div>
                 `;
                 item.querySelector('input').addEventListener('change', () => onSectorCheckboxChange());
@@ -2299,15 +2371,40 @@ HTML_PAGE = r"""<!DOCTYPE html>
             const filtroTurno = document.getElementById('filterTurno')?.value || 'all';
             const filtroVeiculo = document.getElementById('filterVeiculo').value;
 
+            const r = currentAudit ? currentAudit.resumo : {};
+            const ehPeriodo = Boolean(r && r.periodo && r.periodo !== 'diario');
+
             let featuresFiltradas = [];
             let totalScopeM = 0, coletadoScopeM = 0, omissaoScopeM = 0, manualScopeM = 0;
             let cCol = 0, cOmi = 0, cMan = 0, cGps = 0, cPrio = 0;
+            const bP = { p80: 0, p60: 0, p40: 0, p20: 0, p0: 0 };
+            const bM = { m80: 0, m60: 0, m40: 0, m20: 0, m0: 0 };
+
+            function corPorPercentual(pctVal, ehMan) {
+                if (ehMan) {
+                    if (pctVal >= 80) return '#00FFFF';
+                    if (pctVal >= 60) return '#00BFFF';
+                    if (pctVal >= 40) return '#0080FF';
+                    if (pctVal >= 20) return '#0040FF';
+                    return '#001F66';
+                }
+                if (pctVal >= 80) return '#00E600';
+                if (pctVal >= 60) return '#FFFF00';
+                if (pctVal >= 40) return '#FF9900';
+                if (pctVal >= 20) return '#FF0000';
+                return '#660000';
+            }
 
             currentFeatures.forEach(f => {
                 const p = f.properties;
                 const segSectors = (p.sectors && p.sectors.length) ? p.sectors : [p.sector];
                 if (!isEditMode) {
-                    if (filtroTurno !== 'all' && !segSectors.some(s => obterTurnoSetor(s) === filtroTurno)) return;
+                    if (filtroTurno !== 'all') {
+                        const atendeTurno = (p.turnos && p.turnos.length)
+                            ? p.turnos.includes(filtroTurno)
+                            : segSectors.some(s => obterTurnoSetor(s) === filtroTurno);
+                        if (!atendeTurno) return;
+                    }
                     if (selectedSectors.size > 0 && !segSectors.some(s => selectedSectors.has(s))) return;
                     if (filtroVeiculo !== 'all' && (!p.vehicles || !p.vehicles.includes(filtroVeiculo))) return;
                 }
@@ -2315,14 +2412,26 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 const len = p.len_m || 0;
                 const ehManualEfetiva = (p.status === 'possible_manual') || (Boolean(p.is_manual) && p.status !== 'not_collected');
 
-                totalScopeM += len;
-                if (p.status === 'collected' || p.status === 'possible_manual') {
-                    coletadoScopeM += len;
-                } else if (p.status === 'not_collected') {
-                    omissaoScopeM += len;
-                }
-                if (ehManualEfetiva) {
-                    manualScopeM += len;
+                if (ehPeriodo) {
+                    const dPrev = Math.max(1, Number(p.dias_previstos || 1));
+                    const dCol = Number(p.dias_coletados || 0);
+                    totalScopeM += len * dPrev;
+                    coletadoScopeM += len * dCol;
+                    if (ehManualEfetiva) {
+                        manualScopeM += len * dCol;
+                    } else {
+                        omissaoScopeM += len * Math.max(0, dPrev - dCol);
+                    }
+                } else {
+                    totalScopeM += len;
+                    if (p.status === 'collected' || p.status === 'possible_manual') {
+                        coletadoScopeM += len;
+                    } else if (p.status === 'not_collected') {
+                        omissaoScopeM += len;
+                    }
+                    if (ehManualEfetiva) {
+                        manualScopeM += len;
+                    }
                 }
 
                 if (!isEditMode && filtroColeta !== 'all') {
@@ -2337,14 +2446,33 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
                 featuresFiltradas.push(f);
 
-                if (ehManualEfetiva) cMan++;
-                else if (p.status === 'collected') cCol++;
-                else if (p.status === 'not_collected') cOmi++;
-                else if (p.status === 'possible_gps_gap') cGps++;
+                if (ehPeriodo) {
+                    const pctSeg = Number(p.pct_periodo ?? 0);
+                    if (ehManualEfetiva) {
+                        cMan++;
+                        if (pctSeg >= 80) bM.m80++;
+                        else if (pctSeg >= 60) bM.m60++;
+                        else if (pctSeg >= 40) bM.m40++;
+                        else if (pctSeg >= 20) bM.m20++;
+                        else bM.m0++;
+                    } else {
+                        if (pctSeg >= 80) bP.p80++;
+                        else if (pctSeg >= 60) bP.p60++;
+                        else if (pctSeg >= 40) bP.p40++;
+                        else if (pctSeg >= 20) bP.p20++;
+                        else bP.p0++;
+                    }
+                    if (pctSeg < 80) cOmi++;
+                    else cCol++;
+                } else {
+                    if (ehManualEfetiva) cMan++;
+                    else if (p.status === 'collected') cCol++;
+                    else if (p.status === 'not_collected') cOmi++;
+                    else if (p.status === 'possible_gps_gap') cGps++;
+                }
                 if (p.is_priority) cPrio++;
             });
 
-            const r = currentAudit ? currentAudit.resumo : {};
             const pct = totalScopeM > 0 ? (coletadoScopeM / totalScopeM * 100) : 0;
             const pctManual = totalScopeM > 0 ? (manualScopeM / totalScopeM * 100) : 0;
             const manualKm = (manualScopeM / 1000).toFixed(2);
@@ -2362,11 +2490,33 @@ HTML_PAGE = r"""<!DOCTYPE html>
             document.getElementById('kpiCarros').innerText = `${(r.placas_ativas || []).length} veículos`;
             document.getElementById('kpiGpsPontos').innerText = `Pontos GPS reais: ${(r.total_pontos_gps || 0).toLocaleString('pt-BR')}`;
 
-            document.getElementById('legColetada').innerText = cCol;
-            document.getElementById('legNaoColetada').innerText = cOmi;
-            document.getElementById('legManual').innerText = cMan;
-            document.getElementById('legGps').innerText = cGps;
-            document.getElementById('legPrioritaria').innerText = cPrio;
+            const legDiarioEl = document.getElementById('legendDiario');
+            const legPeriodoEl = document.getElementById('legendPeriodo');
+            const legTitleEl = document.getElementById('legendTitle');
+            if (ehPeriodo) {
+                if (legTitleEl) legTitleEl.innerText = `Legenda (${r.periodo_rotulo || 'Período'} por %)`;
+                if (legDiarioEl) legDiarioEl.style.display = 'none';
+                if (legPeriodoEl) legPeriodoEl.style.display = 'block';
+                document.getElementById('legP80').innerText = bP.p80;
+                document.getElementById('legP60').innerText = bP.p60;
+                document.getElementById('legP40').innerText = bP.p40;
+                document.getElementById('legP20').innerText = bP.p20;
+                document.getElementById('legP0').innerText = bP.p0;
+                document.getElementById('legM80').innerText = bM.m80;
+                document.getElementById('legM60').innerText = bM.m60;
+                document.getElementById('legM40').innerText = bM.m40;
+                document.getElementById('legM20').innerText = bM.m20;
+                document.getElementById('legM0').innerText = bM.m0;
+            } else {
+                if (legTitleEl) legTitleEl.innerText = 'Legenda do Mapa de Calor';
+                if (legDiarioEl) legDiarioEl.style.display = 'block';
+                if (legPeriodoEl) legPeriodoEl.style.display = 'none';
+                document.getElementById('legColetada').innerText = cCol;
+                document.getElementById('legNaoColetada').innerText = cOmi;
+                document.getElementById('legManual').innerText = cMan;
+                document.getElementById('legGps').innerText = cGps;
+                document.getElementById('legPrioritaria').innerText = cPrio;
+            }
 
             priorityHaloLayer.clearLayers();
             if (showPriorityHighlight) {
@@ -2392,9 +2542,13 @@ HTML_PAGE = r"""<!DOCTYPE html>
                     const p = feat.properties;
                     const ehManual = (p.status === 'possible_manual') || (Boolean(p.is_manual) && p.status !== 'not_collected');
                     let cor = '#00A859';
-                    if (p.status === 'not_collected') cor = '#E53935';
-                    else if (ehManual) cor = '#FB8C00';
-                    else if (p.status === 'possible_gps_gap') cor = '#FBC02D';
+                    if (ehPeriodo) {
+                        cor = corPorPercentual(Number(p.pct_periodo ?? 0), ehManual);
+                    } else {
+                        if (p.status === 'not_collected') cor = '#E53935';
+                        else if (ehManual) cor = '#0284C7';
+                        else if (p.status === 'possible_gps_gap') cor = '#FBC02D';
+                    }
 
                     let weight = (p.is_priority && showPriorityHighlight) ? 4.0 : (ehManual ? 3.6 : 3.0);
                     if (selectedFeature && selectedFeature.properties.id === p.id) {
@@ -2406,8 +2560,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 onEachFeature: function(feat, layer) {
                     const p = feat.properties;
                     const prioTxt = p.is_priority ? ' · 🌟 Prioritária' : '';
+                    const perTxt = ehPeriodo ? `<br/>Cobertura: <b>${Number(p.pct_periodo ?? 0).toFixed(1)}%</b> (${p.dias_coletados || 0}/${p.dias_previstos || 0} dias)` : '';
                     const veicTxt = (p.vehicles && p.vehicles.length) ? `<br/>Veículos: ${escapeHtml(p.vehicles.join(', '))}` : '';
-                    layer.bindTooltip(`<b>${escapeHtml(p.street_name)}</b> · ${escapeHtml(p.sector)}${prioTxt}${veicTxt}`, { sticky: true });
+                    layer.bindTooltip(`<b>${escapeHtml(p.street_name)}</b> · ${escapeHtml(p.sector)}${prioTxt}${perTxt}${veicTxt}`, { sticky: true });
 
                     layer.on('click', function(e) {
                         if (isEditMode && !isReadOnlyMode) {
@@ -2425,13 +2580,16 @@ HTML_PAGE = r"""<!DOCTYPE html>
                             'possible_manual': 'Coleta Manual',
                             'possible_gps_gap': 'Possível Falha GPS'
                         };
+                        const sitTxt = ehPeriodo
+                            ? `${Number(p.pct_periodo ?? 0).toFixed(1)}% (${p.dias_coletados || 0}/${p.dias_previstos || 0} dias previstos)`
+                            : (stMap[p.status] || p.status);
                         const popHtml = `
                             <div style="font-size:12px; min-width:200px; line-height:1.45;">
                                 <div style="font-weight:800; color:#0F172A; border-bottom:1px solid #E2E8F0; padding-bottom:4px; margin-bottom:4px;">
                                     ${escapeHtml(p.street_name)}
                                 </div>
                                 <div><b>Setor:</b> ${escapeHtml(p.sector)} | <b>Extensão:</b> ${Number(p.len_m||0).toFixed(1)} m</div>
-                                <div><b>Situação:</b> ${escapeHtml(stMap[p.status] || p.status)}</div>
+                                <div><b>Situação:</b> ${escapeHtml(sitTxt)}</div>
                                 <div><b>Tipo:</b> ${escapeHtml(p.tipo || 'COLETA')}${p.is_priority ? ' · 🌟 Prioritária' : ''}</div>
                                 <div><b>Veículos Inlog:</b> ${p.vehicles && p.vehicles.length ? escapeHtml(p.vehicles.join(', ')) : 'Nenhum no período'}</div>
                             </div>
@@ -3147,6 +3305,11 @@ HTML_PAGE = r"""<!DOCTYPE html>
             const sel = document.getElementById('selectCidade');
             if (Array.from(sel.options).some(o => o.value === cidadeId)) {
                 sel.value = cidadeId;
+                const coord = CIDADES_COORDENADAS[cidadeId];
+                if (coord && map) {
+                    map.flyTo(coord.centro, coord.zoom, { duration: 1.2 });
+                    lastCenteredCity = cidadeId;
+                }
                 carregarAuditoria(false);
             }
         }
@@ -3161,12 +3324,22 @@ HTML_PAGE = r"""<!DOCTYPE html>
             const mainSelectCidade = document.getElementById('selectCidade');
             modalSelectCidade.innerHTML = '';
             Array.from(mainSelectCidade.options).forEach(opt => {
+                if (opt.value === 'all') return;
                 const o = document.createElement('option');
                 o.value = opt.value; o.textContent = opt.textContent;
                 if (opt.selected) o.selected = true;
                 modalSelectCidade.appendChild(o);
             });
-            document.getElementById('modalShareData').value = document.getElementById('inputData').value;
+            if (!modalSelectCidade.value && modalSelectCidade.options.length > 0) {
+                modalSelectCidade.selectedIndex = 0;
+            }
+            const dataBase = document.getElementById('inputData').value || formatDataHojeISO();
+            document.getElementById('modalShareData').value = dataBase;
+            const modalMes = document.getElementById('modalShareMes');
+            if (modalMes) modalMes.value = dataBase.slice(0, 7);
+            const modalPeriodo = document.getElementById('modalSharePeriodo');
+            if (modalPeriodo) modalPeriodo.value = 'diario';
+            atualizarCamposPeriodoShare();
             document.getElementById('modalShareTurno').value = document.getElementById('filterTurno')?.value || 'all';
             document.getElementById('modalShareColeta').value = document.getElementById('filterColeta').value;
 
@@ -3178,10 +3351,27 @@ HTML_PAGE = r"""<!DOCTYPE html>
             gerarUrlShare();
         }
 
+        function atualizarCamposPeriodoShare() {
+            const periodo = document.getElementById('modalSharePeriodo')?.value || 'diario';
+            const inpData = document.getElementById('modalShareData');
+            const inpMes = document.getElementById('modalShareMes');
+            const lbl = document.getElementById('lblModalShareData');
+            const ehMes = periodo !== 'diario';
+            if (inpData) inpData.style.display = ehMes ? 'none' : '';
+            if (inpMes) inpMes.style.display = ehMes ? '' : 'none';
+            if (lbl) lbl.innerText = ehMes ? 'Mês / Ano de Referência:' : 'Data da Operação:';
+        }
+
         async function gerarUrlShare() {
+            atualizarCamposPeriodoShare();
             const base = window.location.origin;
             const cidade = document.getElementById('modalShareCidade').value;
-            const data = document.getElementById('modalShareData').value;
+            const periodo = document.getElementById('modalSharePeriodo')?.value || 'diario';
+            let data = document.getElementById('modalShareData').value;
+            if (periodo !== 'diario') {
+                const mesVal = document.getElementById('modalShareMes')?.value || (data ? data.slice(0, 7) : formatDataHojeISO().slice(0, 7));
+                data = (periodo === 'quinzena2') ? `${mesVal}-16` : `${mesVal}-01`;
+            }
             const turno = document.getElementById('modalShareTurno')?.value || 'all';
             const coleta = document.getElementById('modalShareColeta').value;
             const setores = (selectedSectors.size > 0 && selectedSectors.size < setoresList.length)
@@ -3192,7 +3382,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 const resp = await fetch('/api/compartilhar/gerar', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ cidade, data, turno, coleta, setores })
+                    body: JSON.stringify({ cidade, data, periodo, turno, coleta, setores })
                 });
                 const res = await resp.json();
                 if (res && res.sucesso && res.path) {
@@ -3206,9 +3396,42 @@ HTML_PAGE = r"""<!DOCTYPE html>
             return '';
         }
 
+        function exportarCsvClientSide() {
+            const dataIso = (currentAudit && currentAudit.resumo && currentAudit.resumo.data_iso) || document.getElementById('inputData').value;
+            const rows = [
+                ['CIDADE', 'ID_VIA', 'NOME_RUA', 'BAIRRO', 'SETOR', 'STATUS_COLETA', 'EXTENSAO_METROS', 'VEICULOS_RESPONSAVEIS']
+            ];
+            (currentFeatures || []).forEach(f => {
+                const p = f.properties || {};
+                rows.push([
+                    `"${String(p.cidade_nome || p.cidade_id || '').replace(/"/g, '""')}"`,
+                    p.id || '',
+                    `"${String(p.street_name || '').replace(/"/g, '""')}"`,
+                    `"${String(p.bairro || '').replace(/"/g, '""')}"`,
+                    `"${String(p.sector || '').replace(/"/g, '""')}"`,
+                    p.status || '',
+                    (p.len_m || 0).toFixed(2),
+                    `"${(p.vehicles || []).join(';')}"`
+                ]);
+            });
+            const csvContent = '\uFEFF' + rows.map(r => r.join(';')).join('\r\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.setAttribute('download', `auditoria_todas_cidades_${dataIso}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            mostrarToast('CSV de todas as cidades baixado com sucesso!');
+        }
+
         function baixarCsvAuditoria() {
-            if (!currentAudit || !currentAudit.resumo || !currentAudit.resumo.id) {
-                return mostrarToast('Nenhuma auditoria de malha disponível para exportar CSV.');
+            if (!currentAudit || !currentAudit.resumo) {
+                return mostrarToast('Nenhuma auditoria disponível para exportar CSV.');
+            }
+            if (currentAudit.resumo.contrato_id === 'all' || !currentAudit.resumo.id) {
+                exportarCsvClientSide();
+                return;
             }
             let csvUrl = `/api/exportar-csv?id=${currentAudit.resumo.id}`;
             if (sharedToken) csvUrl += `&token=${encodeURIComponent(sharedToken)}`;
@@ -3307,7 +3530,16 @@ HTML_PAGE = r"""<!DOCTYPE html>
         });
 
         document.getElementById('btnConsultar').addEventListener('click', () => carregarAuditoria(true));
-        document.getElementById('selectCidade').addEventListener('change', () => carregarAuditoria(false));
+        document.getElementById('selectCidade').addEventListener('change', (e) => {
+            const cid = e.target.value;
+            if (!isSharedLinkMode) selectedSectors.clear();
+            const coord = CIDADES_COORDENADAS[cid];
+            if (coord && map) {
+                map.flyTo(coord.centro, coord.zoom, { duration: 1.2 });
+                lastCenteredCity = cid;
+            }
+            carregarAuditoria(false);
+        });
         document.getElementById('selectOperacao').addEventListener('change', (e) => {
             const val = e.target.value;
             const fc = document.getElementById('filterColeta');
@@ -3350,7 +3582,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
         document.getElementById('btnShareLink').addEventListener('click', abrirModalShare);
         document.getElementById('btnCloseModalShare').addEventListener('click', () => document.getElementById('modalShareLink').style.display = 'none');
         document.getElementById('btnCancelShareModal').addEventListener('click', () => document.getElementById('modalShareLink').style.display = 'none');
-        ['modalShareCidade','modalShareData','modalShareTurno','modalShareColeta'].forEach(id => {
+        ['modalShareCidade','modalShareData','modalShareMes','modalSharePeriodo','modalShareTurno','modalShareColeta'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', gerarUrlShare);
         });
         document.getElementById('btnCopyGeneratedUrl').addEventListener('click', async () => {
@@ -3543,12 +3775,18 @@ class LocarRequestHandler(BaseHTTPRequestHandler):
                 return
 
             cidade = tok_payload["cidade"] if tok_payload else query.get("cidade", ["cabo"])[0]
-            data_iso = query.get("data", [datetime.now().strftime("%Y-%m-%d")])[0]
+            data_iso = (tok_payload.get("data") or query.get("data", [datetime.now().strftime("%Y-%m-%d")])[0]) if tok_payload else query.get("data", [datetime.now().strftime("%Y-%m-%d")])[0]
+            periodo = str(tok_payload.get("periodo") or "diario").lower().strip() if tok_payload else str(query.get("periodo", ["diario"])[0]).lower().strip()
             operacao = query.get("operacao", ["COLETA"])[0]
             force = False if tok_payload else (query.get("force", ["false"])[0].lower() == "true")
-            resultado = engine.processar_ou_obter_auditoria(
-                cidade, data_iso, forcar_reprocessamento=force, operacao=operacao
-            )
+            if periodo in ("quinzena1", "quinzena2", "mensal"):
+                resultado = engine.processar_auditoria_periodo(
+                    cidade, data_iso, periodo=periodo, operacao=operacao
+                )
+            else:
+                resultado = engine.processar_ou_obter_auditoria(
+                    cidade, data_iso, forcar_reprocessamento=force, operacao=operacao
+                )
             self._send_json(resultado)
             return
 
@@ -3746,7 +3984,7 @@ class LocarRequestHandler(BaseHTTPRequestHandler):
 
             por_placa = {}
             if placa and placa.lower() != "all":
-                pts = inlog.get_historico_gps(placa, data_iso)
+                pts = inlog.get_historico_gps_janela_operacional(placa, data_iso, contrato_id=cidade)
                 por_placa[formatar_placa_hifen(placa)] = [
                     {
                         "lat": p["latitude"],
