@@ -120,8 +120,8 @@ LOGIN_PAGE = """<!DOCTYPE html>
     <style>
         body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #F1F5F9; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; color:#1E293B; }
         .card { background:#FFF; border-radius:12px; box-shadow:0 12px 32px rgba(15,23,42,0.12); padding:28px 32px; width:100%; max-width:410px; border-top:4px solid #008844; }
-        .brand { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
-        .logo { background:linear-gradient(135deg,#008844,#005C2E); color:#FFF; font-weight:800; padding:5px 11px; border-radius:6px; font-size:0.95rem; }
+        .brand { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+        .logo-img { height:44px; width:auto; object-fit:contain; display:block; }
         h1 { font-size:1.1rem; margin:0; }
         .alert { background:#FEF3C7; border:1px solid #FDE68A; color:#92400E; padding:10px 12px; border-radius:8px; font-size:0.78rem; line-height:1.45; margin-bottom:16px; }
         label { display:block; font-size:0.76rem; font-weight:700; color:#475569; margin-bottom:6px; text-transform:uppercase; }
@@ -136,7 +136,7 @@ LOGIN_PAGE = """<!DOCTYPE html>
 <body>
     <div class="card">
         <div class="brand">
-            <div class="logo">LOCAR</div>
+            <img src="/static/logo-locar.png" alt="LOCAR Gestão de Resíduos" class="logo-img" />
             <div><h1>Painel Central Operacional</h1></div>
         </div>
         __LOCKED_NOTICE__
@@ -172,9 +172,10 @@ HTML_PAGE = r"""<!DOCTYPE html>
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LOCAR - Monitoramento Integrado Inlog, Auditoria & GIS</title>
+    <title>LOCAR - Mapa de Execução · Inlog, Auditoria & GIS</title>
     <!-- __SHARED_LOCK_INIT__ -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -442,6 +443,64 @@ HTML_PAGE = r"""<!DOCTYPE html>
         .stat-card.manual { border-left: 4px solid var(--manual-orange); }
         .stat-card.alerta { border-left: 4px solid var(--danger-red); }
         .stat-card.inlog { border-left: 4px solid var(--inlog-indigo); }
+
+        .map-print-btn {
+            position: absolute;
+            bottom: 18px;
+            left: 14px;
+            z-index: 820;
+            background: #0F172A;
+            color: #FFF;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            padding: 8px 13px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+            display: none;
+            align-items: center;
+            gap: 6px;
+        }
+        .map-print-btn:hover { background: var(--locar-green); }
+        .all-cities-legend {
+            position: absolute;
+            bottom: 16px;
+            left: 14px;
+            z-index: 810;
+            background: rgba(255, 255, 255, 0.22);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.45);
+            border-radius: 10px;
+            padding: 7px 10px;
+            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+            max-width: min(560px, calc(100% - 28px));
+            display: none;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 5px;
+        }
+        .city-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-size: 0.71rem;
+            font-weight: 700;
+            border: 1px solid rgba(255, 255, 255, 0.65);
+            background: rgba(255, 255, 255, 0.72);
+            backdrop-filter: blur(6px);
+            color: #1E293B;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .city-pill:hover { border-color: var(--locar-green); background: #F0FDF4; }
+        .city-pill .pct-ok { color: #008844; }
+        .city-pill .pct-mid { color: #D97706; }
+        .city-pill .pct-low { color: #DC2626; }
 
         /* MODO LINK COMPARTILHADO (RESTRITO A UMA CIDADE E SOMENTE VISUALIZAÇÃO) */
         body.modo-link-compartilhado .toolbar { display: none !important; }
@@ -1013,9 +1072,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
     <!-- HEADER -->
     <header>
         <div class="header-brand">
-            <div class="logo-box">LOCAR</div>
+            <img src="/static/logo-locar.png" alt="LOCAR Gestão de Resíduos" style="height:36px; width:auto; object-fit:contain; display:block;" />
             <div class="header-title">
-                <h1>SISTEMA LC <span class="tagline" id="headerTagline">· Monitoramento Operacional Inlog & GIS</span></h1>
+                <h1>SISTEMA LC <span class="tagline" id="headerTagline">· Mapa de Execução Operacional Inlog & GIS</span></h1>
             </div>
             <div class="badge-status" id="inlogStatusBadge" title="Status da Conexão com API Inlog">
                 <span class="badge-dot"></span>
@@ -1063,7 +1122,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
                     <option value="canela">Canela</option>
                     <option value="jequie">Jequié</option>
                     <option value="novo hamburgo">Novo Hamburgo</option>
-                    <option value="varzea">Várzea Grande</option>
                 </select>
             </div>
 
@@ -1146,6 +1204,10 @@ HTML_PAGE = r"""<!DOCTYPE html>
     <!-- MAIN CONTAINER -->
     <div class="main-container">
         <div id="map"></div>
+        <button type="button" id="btnPrintMapaCidade" class="map-print-btn" title="Enquadrar cidade, tirar print do mapa e copiar texto para Ctrl+V">
+            📸 Print Mapa + Copiar Texto
+        </button>
+        <div id="allCitiesBottomLegend" class="all-cities-legend"></div>
 
         <!-- BANNER PARA CIDADES SEM MALHA VIÁRIA IMPORTADA -->
         <div id="noMeshBanner">
@@ -1306,7 +1368,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 </div>
 
                 <div class="sidebar-section">
-                    <h4 id="legendTitle">Legenda do Mapa de Calor</h4>
+                    <h4 id="legendTitle">Legenda do Mapa de Execução</h4>
                     <div id="legendDiario" class="legend-compact">
                         <div class="legend-row">
                             <span><span class="legend-color-dot" style="background:#00A859;"></span> Coletada</span>
@@ -1596,8 +1658,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
             'vitoria': 'Vitória de Santo Antão',
             'canela': 'Canela',
             'jequie': 'Jequié',
-            'novo hamburgo': 'Novo Hamburgo',
-            'varzea': 'Várzea Grande'
+            'novo hamburgo': 'Novo Hamburgo'
         };
 
         const CIDADES_COORDENADAS = {
@@ -1613,8 +1674,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
             'vitoria': { centro: [-8.1189, -35.2928], zoom: 13 },
             'canela': { centro: [-29.3644, -50.8119], zoom: 13 },
             'jequie': { centro: [-13.8575, -40.0839], zoom: 13 },
-            'novo hamburgo': { centro: [-29.6789, -51.1306], zoom: 12.5 },
-            'varzea': { centro: [-15.6467, -56.1325], zoom: 12 }
+            'novo hamburgo': { centro: [-29.6789, -51.1306], zoom: 12.5 }
         };
 
         function obterTurnoSetor(codigoSetor) {
@@ -1778,7 +1838,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
         function initMap() {
             canvasRenderer = L.canvas({ padding: 0.5 });
-            map = L.map('map', { preferCanvas: true, zoomControl: true }).setView([-8.2833, -35.0333], 12);
+            map = L.map('map', { preferCanvas: true, zoomControl: true, zoomSnap: 0.25 }).setView([-8.2833, -35.0333], 12);
 
             map.createPane('baseMeshPane');
             map.getPane('baseMeshPane').style.zIndex = 340;
@@ -1790,7 +1850,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; OpenStreetMap · Locar Saneamento & Inlog API',
-                maxZoom: 19
+                maxZoom: 19,
+                crossOrigin: 'anonymous'
             }).addTo(map);
 
             baseMeshLayer = L.layerGroup().addTo(map);
@@ -2508,7 +2569,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 document.getElementById('legM20').innerText = bM.m20;
                 document.getElementById('legM0').innerText = bM.m0;
             } else {
-                if (legTitleEl) legTitleEl.innerText = 'Legenda do Mapa de Calor';
+                if (legTitleEl) legTitleEl.innerText = 'Legenda do Mapa de Execução';
                 if (legDiarioEl) legDiarioEl.style.display = 'block';
                 if (legPeriodoEl) legPeriodoEl.style.display = 'none';
                 document.getElementById('legColetada').innerText = cCol;
@@ -2608,6 +2669,108 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 if (pts.length > 0) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 15 });
             }
             renderizarRotulosSetores();
+            atualizarControlesRodapeMapa(r, pct);
+        }
+
+        function atualizarControlesRodapeMapa(resumo, pctAtual) {
+            const cidadeSel = document.getElementById('selectCidade')?.value || 'cabo';
+            const btnPrint = document.getElementById('btnPrintMapaCidade');
+            const legendAll = document.getElementById('allCitiesBottomLegend');
+
+            if (btnPrint) {
+                btnPrint.style.display = (cidadeSel !== 'all') ? 'inline-flex' : 'none';
+            }
+            if (legendAll) {
+                const lista = (resumo && Array.isArray(resumo.resumos_cidades)) ? resumo.resumos_cidades : [];
+                if (cidadeSel === 'all' && lista.length > 0) {
+                    legendAll.innerHTML = '';
+                    lista.forEach(c => {
+                        const pctVal = Number(c.pct_cobertura || 0);
+                        const cls = pctVal >= 90 ? 'pct-ok' : (pctVal >= 70 ? 'pct-mid' : 'pct-low');
+                        const pill = document.createElement('button');
+                        pill.type = 'button';
+                        pill.className = 'city-pill';
+                        pill.innerHTML = `<span>${escapeHtml(c.nome)}</span> <span class="${cls}">${pctVal.toFixed(1)}%</span>`;
+                        pill.title = `Abrir ${c.nome}`;
+                        pill.addEventListener('click', () => {
+                            const sel = document.getElementById('selectCidade');
+                            if (sel) {
+                                sel.value = c.id;
+                                carregarAuditoria(false);
+                            }
+                        });
+                        legendAll.appendChild(pill);
+                    });
+                    legendAll.style.display = 'flex';
+                } else {
+                    legendAll.style.display = 'none';
+                }
+            }
+        }
+
+        async function capturarMapaECopiarTexto() {
+            const cidade = document.getElementById('selectCidade')?.value || 'cabo';
+            if (cidade === 'all') return;
+
+            // 1. Enquadra corretamente o mapeamento da cidade (ruas encostadas na borda)
+            if (geojsonLayer && geojsonLayer.getBounds && geojsonLayer.getBounds().isValid()) {
+                map.fitBounds(geojsonLayer.getBounds(), { padding: [6, 6], animate: false });
+            } else if (CIDADES_COORDENADAS[cidade]) {
+                map.setView(CIDADES_COORDENADAS[cidade].centro, CIDADES_COORDENADAS[cidade].zoom, { animate: false });
+            }
+
+            // 2. Monta o texto formatado conforme horário e %
+            const hora = new Date().getHours();
+            const saudacao = hora < 12 ? 'Bom dia!' : (hora < 18 ? 'Boa tarde!' : 'Boa noite!');
+            const dataIso = (currentAudit && currentAudit.resumo && currentAudit.resumo.data_iso) || document.getElementById('inputData')?.value || formatDataHojeISO();
+            let dataFmt = dataIso;
+            if (/^\d{4}-\d{2}-\d{2}$/.test(dataIso)) {
+                const [a, m, d] = dataIso.split('-');
+                dataFmt = `${d}/${m}/${a}`;
+            }
+            const kpiTxt = (document.getElementById('kpiCobertura')?.innerText || '').replace('%', '').trim();
+            const pctNum = parseFloat(kpiTxt);
+            const pctStr = !isNaN(pctNum) ? Math.round(pctNum) : Math.round(Number(currentAudit?.resumo?.pct_cobertura || 0));
+            const texto = `${saudacao}\n\nSegue o Mapa de Execução da coleta do dia ${dataFmt}, com percentual de ${pctStr}% através do rastreamento do veículo.`;
+
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(texto);
+                } else {
+                    const ta = document.createElement('textarea');
+                    ta.value = texto;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                }
+            } catch (e) {
+                console.warn('Erro ao copiar texto:', e);
+            }
+
+            // 3. Aguarda redesenho dos tiles/canvas após fitBounds e salva o print do mapa
+            await new Promise(r => setTimeout(r, 450));
+            try {
+                if (typeof html2canvas === 'function') {
+                    const mapEl = document.getElementById('map');
+                    const canvas = await html2canvas(mapEl, {
+                        useCORS: true,
+                        allowTaint: false,
+                        logging: false,
+                        ignoreElements: el => el.classList && el.classList.contains('leaflet-control-zoom')
+                    });
+                    const link = document.createElement('a');
+                    link.download = `mapa_execucao_${cidade}_${dataIso}.png`;
+                    link.href = canvas.toDataURL('image/png');
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
+                mostrarToast('Print salvo e texto copiado para o Ctrl+V!');
+            } catch (err) {
+                console.warn('Erro ao capturar imagem do mapa:', err);
+                mostrarToast('Texto copiado para o Ctrl+V!');
+            }
         }
 
         // ====================================================================
@@ -3580,6 +3743,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
         document.getElementById('btnRefreshVisaoGeral').addEventListener('click', abrirVisaoGeral);
 
         document.getElementById('btnShareLink').addEventListener('click', abrirModalShare);
+        document.getElementById('btnPrintMapaCidade')?.addEventListener('click', capturarMapaECopiarTexto);
         document.getElementById('btnCloseModalShare').addEventListener('click', () => document.getElementById('modalShareLink').style.display = 'none');
         document.getElementById('btnCancelShareModal').addEventListener('click', () => document.getElementById('modalShareLink').style.display = 'none');
         ['modalShareCidade','modalShareData','modalShareMes','modalSharePeriodo','modalShareTurno','modalShareColeta'].forEach(id => {
@@ -3704,6 +3868,21 @@ class LocarRequestHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
+
+        if path == "/static/logo-locar.png":
+            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "logo-locar.png")
+            if os.path.isfile(logo_path):
+                with open(logo_path, "rb") as f_img:
+                    img_bytes = f_img.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(img_bytes)
+            else:
+                self.send_error(404)
+            return
+
         is_admin, viewer_lock, lock_token_raw = self._obter_sessao()
 
         # 0. Rota Exclusiva do Link Assinado Compartilhado (/v/<token>)

@@ -162,13 +162,13 @@ class TestIntegracaoInlog(unittest.TestCase):
 
     def test_05_persistencia_gis_sqlite(self):
         criado = db.salvar_ou_atualizar_segmento({
-            "contrato_id": "varzea",
+            "contrato_id": "cabo",
             "nome_rua": "Rua Teste Integração Inlog",
             "setor": "SETOR-TST",
             "tipo": "COLETA",
             "is_manual": False,
             "is_priority": True,
-            "coordinates": [[-56.1325, -15.6467], [-56.1315, -15.6467]],
+            "coordinates": [[-35.0333, -8.2833], [-35.0323, -8.2833]],
         })
         seg_id = criado["id"]
         self.assertGreater(seg_id, 0)
@@ -177,7 +177,7 @@ class TestIntegracaoInlog(unittest.TestCase):
 
         atualizado = db.salvar_ou_atualizar_segmento({
             "id": seg_id,
-            "contrato_id": "varzea",
+            "contrato_id": "cabo",
             "nome_rua": "Rua Teste Atualizada",
             "setor": "SETOR-TST-2",
             "tipo": "MANUAL",
